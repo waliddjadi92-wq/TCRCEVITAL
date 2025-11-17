@@ -16,10 +16,14 @@ def to_numeric_safe(x):
         return 0.0
 
 def df_to_poste_value_map_manual(mapping):
-    """Récupère les valeurs saisies manuellement dans le mapping."""
+    """Récupère les valeurs saisies manuellement dans un tableau à deux colonnes."""
     postes = {}
-    for key, field_name in mapping.items():
-        value = st.number_input(f"{key}", value=0.0, step=1.0)
+    for key in mapping.keys():
+        col1, col2 = st.columns([2, 1])  # 2 pour le texte, 1 pour la saisie
+        with col1:
+            st.write(key)
+        with col2:
+            value = st.number_input("", value=0.0, step=1.0, key=key)
         postes[key] = to_numeric_safe(value)
     return postes
 
