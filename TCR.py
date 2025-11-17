@@ -15,24 +15,12 @@ def to_numeric_safe(x):
     except:
         return 0.0
 
-def load_excel(path_or_buffer):
-    """Charge un fichier Excel en un dict {sheet_name: DataFrame}."""
-    xls = pd.ExcelFile(path_or_buffer)
-    return {name: xls.parse(name, header=None) for name in xls.sheet_names}
-
-def df_to_poste_value_map(df: pd.DataFrame) -> dict:
-    """Transforme une feuille libre en {poste: valeur}."""
-    labels_col = df.columns[0]
-    numeric_cols = df.columns[1:]
-    amount_col = numeric_cols[-1] if len(numeric_cols) > 0 else df.columns[0]
-
+def df_to_poste_value_map_manual(mapping):
+    """Récupère les valeurs saisies manuellement dans le mapping."""
     postes = {}
-    for _, row in df.iterrows():
-        key = str(row[labels_col]).strip()
-        if key == "" or key.lower() in ("nan", "none"):
-            continue
-        val = to_numeric_safe(row[amount_col])
-        postes[key] = postes.get(key, 0.0) + val
+    for key, field_name in mapping.items():
+        value = st.number_input(f"{key}", value=0.0, step=1.0)
+        postes[key] = to_numeric_safe(value)
     return postes
 
 # ================== MAPPING PAR DÉFAUT ==================
@@ -176,9 +164,7 @@ def compute_tcr_ratios(aggs):
 ###############################################################################
 
 st.set_page_config(page_title="GibuPet — TCR Auto", layout="wide")
-st.title("📊 GibuPet — Plateforme automatique TCR")
-
-uploaded = st.file_uploader("Téléverse ton fichier Excel TCR", type=["xls", "xlsx"])
+st.title("📊 GibuPet — Plateforme automatique TCR (Saisie manuelle)")
 
 mapping_text = st.sidebar.text_area(
     "Mapping JSON (modifiable)",
@@ -192,36 +178,28 @@ except:
     st.sidebar.error("⚠️ Mapping JSON invalide — j'utilise le mapping par défaut.")
     mapping = DEFAULT_MAPPING
 
-if uploaded:
-    sheets = load_excel(uploaded)
-    sheet_name = "TCR" if "TCR" in sheets else list(sheets.keys())[0]
+st.subheader("Saisir les valeurs manuellement")
+postes_map = df_to_poste_value_map_manual(mapping)
 
-    st.subheader(f"Aperçu de la feuille utilisée : {sheet_name}")
-    st.dataframe(sheets[sheet_name].head(50))
+if st.button("⚡ Calculer automatiquement"):
+    aggs = compute_tcr_aggregates(postes_map, mapping)
+    ratios = compute_tcr_ratios(aggs)
 
-    if st.button("⚡ Calculer automatiquement"):
-        postes_map = df_to_poste_value_map(sheets[sheet_name])
-        aggs = compute_tcr_aggregates(postes_map, mapping)
-        ratios = compute_tcr_ratios(aggs)
+    st.subheader("📌 Agrégats calculés")
+    df_aggs = pd.DataFrame({k: [v] for k, v in aggs.items() if k != "normalized_values"})
+    st.dataframe(df_aggs.T)
 
-        st.subheader("📌 Agrégats calculés")
-        df_aggs = pd.DataFrame({k: [v] for k, v in aggs.items() if k != "normalized_values"})
-        st.dataframe(df_aggs.T)
+    st.subheader("📈 Ratios")
+    df_ratios = pd.DataFrame(ratios, index=["Ratio"])
+    st.dataframe(df_ratios.T)
 
-        st.subheader("📈 Ratios")
-        df_ratios = pd.DataFrame(ratios, index=["Ratio"])
-        st.dataframe(df_ratios.T)
+    report = {
+        "aggregates": aggs,
+        "ratios": ratios,
+        "postes_map": postes_map
+    }
+    buf = BytesIO()
+    buf.write(json.dumps(report, ensure_ascii=False, indent=2).encode())
+    buf.seek(0)
 
-        report = {
-            "aggregates": aggs,
-            "ratios": ratios,
-            "postes_map": postes_map
-        }
-        buf = BytesIO()
-        buf.write(json.dumps(report, ensure_ascii=False, indent=2).encode())
-        buf.seek(0)
-
-        st.download_button("📥 Télécharger rapport JSON", data=buf, file_name="gibupet_tcr_report.json")
-
-else:
-    st.info("📂 Téléverse un fichier Excel pour commencer.")
+    st.download_button("📥 Télécharger rapport JSON", data=buf, file_name="gibupet_tcr_report.json")
